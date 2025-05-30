@@ -90,8 +90,14 @@ client.disconnect();
 | comments | comment_removed  | -    | '{"parentEntityID":number,"parentEntityType":"Event / Series"}' | Comment  |
 | comments | reaction_created | -    | '{"parentEntityID":number,"parentEntityType":"Event / Series"}' | Reaction |
 | comments | reaction_removed | -    | '{"parentEntityID":number,"parentEntityType":"Event / Series"}' | Reaction |
-| rfq      | requests         | -    | -                                                               | Request  |
-| rfq      | quotes           | -    | -                                                               | Quote    |
+| rfq      | request_created  | -    | -                                                               | Request  |
+| rfq      | request_edited   | -    | -                                                               | Request  |
+| rfq      | request_canceled | -    | -                                                               | Request  |
+| rfq      | request_expired  | -    | -                                                               | Request  |
+| rfq      | quote_created    | -    | -                                                               | Quote    |
+| rfq      | quote_edited     | -    | -                                                               | Quote    |
+| rfq      | quote_canceled   | -    | -                                                               | Quote    |
+| rfq      | quote_expired    | -    | -                                                               | Quote    |
 
 ### Trade
 
