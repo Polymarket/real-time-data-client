@@ -201,8 +201,10 @@ export class RealTimeDataClient {
         try {
             ws.send(JSON.stringify({ action: "subscribe", ...msg }), (err?: Error) => {
                 if (err) {
-                    console.error("subscribe error", err);
-                    ws.close();
+                    if (ws.readyState === WebSocket.OPEN) {
+                        console.error("subscribe error", err);
+                        ws.close();
+                    }
                 }
             });
         } catch (error) {
