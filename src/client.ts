@@ -198,12 +198,19 @@ export class RealTimeDataClient {
             return console.warn("Socket not open. Ready state is:", this.ws.readyState);
         }
         const ws = this.ws;
-        ws.send(JSON.stringify({ action: "subscribe", ...msg }), (err?: Error) => {
-            if (err) {
-                console.error("subscribe error", err);
+        try {
+            ws.send(JSON.stringify({ action: "subscribe", ...msg }), (err?: Error) => {
+                if (err) {
+                    console.error("subscribe error", err);
+                    ws.close();
+                }
+            });
+        } catch (error) {
+            if (ws.readyState === WebSocket.OPEN) {
+                console.error("subscribe exception", error);
                 ws.close();
             }
-        });
+        }
     }
 
     /**
@@ -227,6 +234,7 @@ export class RealTimeDataClient {
         } catch (error) {
             if (ws.readyState === WebSocket.OPEN) {
                 console.error("unsubscribe exception", error);
+                ws.close();
             }
         }
     }
