@@ -1,8 +1,13 @@
-import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
-import { SubscriptionMessage, Message, ConnectionStatus } from "./model";
+import WebSocket, { CloseEvent, ErrorEvent, MessageEvent } from "isomorphic-ws";
+import { ConnectionStatus, Message, SubscriptionMessage } from "./model";
 
 const DEFAULT_HOST = "wss://ws-live-data.polymarket.com";
 const DEFAULT_PING_INTERVAL = 5000;
+
+/**
+ * Function signature for WebSocket factories used in connect.
+ */
+export type WebSocketFactory = (host: string) => WebSocket;
 
 /**
  * Interface representing the arguments for initializing a RealTimeDataClient.
@@ -41,6 +46,11 @@ export interface RealTimeDataClientArgs {
      * Optional flag to enable or disable automatic reconnection when the connection is lost.
      */
     autoReconnect?: boolean;
+
+    /**
+     * Optional factory for creating new WebSocket instances in connect.
+     */
+    webSocketFactory?: WebSocketFactory;
 }
 
 /**
@@ -56,6 +66,9 @@ export class RealTimeDataClient {
 
     /** Determines whether the client should automatically reconnect on disconnection */
     private autoReconnect: boolean;
+
+    /** Factory for creating new WebSocket instances in connect */
+    private readonly webSocketFactory: WebSocketFactory;
 
     /** Callback function executed when the connection is established */
     private readonly onConnect?: (client: RealTimeDataClient) => void;
@@ -73,13 +86,14 @@ export class RealTimeDataClient {
      * Constructs a new RealTimeDataClient instance.
      * @param args Configuration options for the client.
      */
-    constructor(args?: RealTimeDataClientArgs) {
-        this.host = args!.host || DEFAULT_HOST;
-        this.pingInterval = args!.pingInterval || DEFAULT_PING_INTERVAL;
-        this.autoReconnect = args!.autoReconnect || true;
-        this.onCustomMessage = args!.onMessage;
-        this.onConnect = args!.onConnect;
-        this.onStatusChange = args!.onStatusChange;
+    constructor(args: RealTimeDataClientArgs = {}) {
+        this.host = args.host ?? DEFAULT_HOST;
+        this.pingInterval = args.pingInterval ?? DEFAULT_PING_INTERVAL;
+        this.autoReconnect = args.autoReconnect ?? true;
+        this.onCustomMessage = args.onMessage;
+        this.onConnect = args.onConnect;
+        this.onStatusChange = args.onStatusChange;
+        this.webSocketFactory = args.webSocketFactory ?? ((host: string) => new WebSocket(host));
     }
 
     /**
@@ -87,7 +101,7 @@ export class RealTimeDataClient {
      */
     public connect() {
         this.notifyStatusChange(ConnectionStatus.CONNECTING);
-        this.ws = new WebSocket(this.host);
+        this.ws = this.webSocketFactory(this.host);
         if (this.ws) {
             this.ws.onopen = this.onOpen;
             this.ws.onmessage = this.onMessage;
