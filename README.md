@@ -10,7 +10,7 @@ Here is a quick example about how to connect to the service and start receiving 
 import { RealTimeDataClient } from "../src/client";
 import { Message } from "../src/model";
 
-const onMessage = (message: Message): void => {
+const onMessage = (client: RealTimeDataClient, message: Message): void => {
     console.log(message.topic, message.type, message.payload);
 };
 
