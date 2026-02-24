@@ -76,7 +76,7 @@ export class RealTimeDataClient {
     constructor(args?: RealTimeDataClientArgs) {
         this.host = args!.host || DEFAULT_HOST;
         this.pingInterval = args!.pingInterval || DEFAULT_PING_INTERVAL;
-        this.autoReconnect = args!.autoReconnect || true;
+        this.autoReconnect = args!.autoReconnect ?? true;
         this.onCustomMessage = args!.onMessage;
         this.onConnect = args!.onConnect;
         this.onStatusChange = args!.onStatusChange;
