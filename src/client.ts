@@ -122,6 +122,11 @@ export class RealTimeDataClient {
      */
     private onError = async (err: ErrorEvent) => {
         console.error("error", err);
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            this.ws.terminate();
+            this.ws = null;
+        }
         if (this.autoReconnect) {
             this.connect();
         }
@@ -134,6 +139,11 @@ export class RealTimeDataClient {
      */
     private onClose = async (message: CloseEvent) => {
         console.error("disconnected", "code", message.code, "reason", message.reason);
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            this.ws.terminate();
+            this.ws = null;
+        }
         this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
         if (this.autoReconnect) {
             this.connect();
