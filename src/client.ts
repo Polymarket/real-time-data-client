@@ -120,9 +120,9 @@ export class RealTimeDataClient {
      * Handles WebSocket errors. Logs the error and attempts reconnection if `autoReconnect` is enabled.
      * @param err Error object describing the issue.
      */
-    private onError = async (err: ErrorEvent) => {        
-        this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
+    private onError = async (err: ErrorEvent) => {   
         console.error("error", err);
+        this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
         if (this.ws) {
             this.ws.removeAllListeners();
             this.ws.terminate();
@@ -140,12 +140,12 @@ export class RealTimeDataClient {
      */
     private onClose = async (message: CloseEvent) => {
         console.error("disconnected", "code", message.code, "reason", message.reason);
+        this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
         if (this.ws) {
             this.ws.removeAllListeners();
             this.ws.terminate();
             this.ws = null;
         }
-        this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
         if (this.autoReconnect) {
             this.connect();
         }
