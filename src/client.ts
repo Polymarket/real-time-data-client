@@ -113,14 +113,15 @@ export class RealTimeDataClient {
      * Handles WebSocket 'pong' event. Continues the ping cycle.
      */
     private onPong = async () => {
-        delay(this.pingInterval).then(() => this.ping());
+        if(this.ws) delay(this.pingInterval).then(() => this.ping());
     };
 
     /**
      * Handles WebSocket errors. Logs the error and attempts reconnection if `autoReconnect` is enabled.
      * @param err Error object describing the issue.
      */
-    private onError = async (err: ErrorEvent) => {
+    private onError = async (err: ErrorEvent) => {        
+        this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
         console.error("error", err);
         if (this.ws) {
             this.ws.removeAllListeners();
@@ -154,15 +155,17 @@ export class RealTimeDataClient {
      * Sends a ping message to keep the connection alive.
      */
     private ping = async () => {
-        if (this.ws.readyState !== WebSocket.OPEN) {
-            return console.warn("Socket not open. Ready state is:", this.ws.readyState);
-        }
-
-        this.ws.send("ping", (err: Error | undefined) => {
-            if (err) {
-                console.error("ping error", err);
+        if(this.ws) {
+            if (this.ws.readyState !== WebSocket.OPEN) {
+                return console.warn("Socket not open. Ready state is:", this.ws.readyState);
             }
-        });
+    
+            this.ws.send("ping", (err: Error | undefined) => {
+                if (err) {
+                    console.error("ping error", err);
+                }
+            });
+        }
     };
 
     /**
