@@ -18,7 +18,7 @@ const onConnect = (client: RealTimeDataClient): void => {
             // comments
             {
                 topic: "comments",
-                type: "*", // "*"" can be used to connect to all the types of the topic
+                type: "*", // "*" can be used to connect to all the types of the topic
                 //filters: `{"parentEntityID":20200,"parentEntityType":"Event"}`,
             },
 
@@ -33,7 +33,7 @@ const onConnect = (client: RealTimeDataClient): void => {
             {
                 topic: "crypto_prices",
                 type: "*",
-                filters: "", // filters: `{"symbol":"btCUSDt"}`,
+                filters: "", // filters: `{"symbol":"BTCUSDT"}`,
             },
 
             // crypto_prices_chainlink

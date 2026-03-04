@@ -20,7 +20,7 @@ const onConnect = (client: RealTimeDataClient): void => {
         subscriptions: [
             {
                 topic: "comments",
-                type: "*", // "*"" can be used to connect to all the types of the topic
+                type: "*", // "*" can be used to connect to all the types of the topic
                 filters: `{"parentEntityID":100,"parentEntityType":"Event"}`, // empty means no filter
             },
         ],
@@ -32,7 +32,7 @@ new RealTimeDataClient({ onMessage, onConnect }).connect();
 
 ## How to subscribe and unsubscribe from messages
 
-Once the connection is stablished and you have a `client: RealTimeDataClient` object, you can `subscribe` and `unsubscribe` to many messages streamings using the same connection.
+Once the connection is established and you have a `client: RealTimeDataClient` object, you can `subscribe` and `unsubscribe` to many messages streamings using the same connection.
 
 ### Subscribe
 
@@ -52,7 +52,7 @@ client.subscribe({
     subscriptions: [
         {
             topic: "comments",
-            type: "*", // "*"" can be used to connect to all the types of the topic
+            type: "*", // "*" can be used to connect to all the types of the topic
         },
     ],
 });
@@ -226,7 +226,7 @@ client.subscribe({
 
 #### Initial data dump on connection
 
-When the connection is stablished, if a `filter` is used, the server will dump an initial snapshoot of recent data. This applies to both CrytoPrice and EquityPrice.
+When the connection is established, if a `filter` is used, the server will dump an initial snapshot of recent data. This applies to both CryptoPrice and EquityPrice.
 
 | Name   | Type   | Description                                                      |
 | ------ | ------ | ---------------------------------------------------------------- |
