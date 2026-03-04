@@ -93,7 +93,9 @@ export class RealTimeDataClient {
             this.ws.onmessage = this.onMessage;
             this.ws.onclose = this.onClose;
             this.ws.onerror = this.onError;
-            this.ws.pong = this.onPong;
+            if (this.ws.on) {
+                this.ws.on('pong', this.onPong);
+            }
         }
         return this;
     }
@@ -147,8 +149,8 @@ export class RealTimeDataClient {
         if (this.ws.readyState !== WebSocket.OPEN) {
             return console.warn("Socket not open. Ready state is:", this.ws.readyState);
         }
-
-        this.ws.send("ping", (err: Error | undefined) => {
+        
+        this.ws.ping((err: Error | undefined) => {
             if (err) {
                 console.error("ping error", err);
             }
