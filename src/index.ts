@@ -1,6 +1,5 @@
 import { RealTimeDataClient, RealTimeDataClientArgs } from "./client";
 import {
-    ClobApiKeyCreds,
     GammaAuth,
     SubscriptionMessage,
     Message,
@@ -10,7 +9,6 @@ import {
 export {
     RealTimeDataClient,
     RealTimeDataClientArgs,
-    ClobApiKeyCreds,
     GammaAuth,
     SubscriptionMessage,
     Message,

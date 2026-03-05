@@ -49,24 +49,6 @@ const onConnect = (client: RealTimeDataClient): void => {
                 type: "*",
                 filters: "", // filters: `{"symbol":"AAPL"}`,
             },
-
-            // clob_market
-            {
-                topic: "clob_market",
-                type: "*",
-                // filters: `["71321045679252212594626385532706912750332728571942532289631379312455583992563"]`,
-            },
-
-            // clob_user
-            {
-                topic: "clob_user",
-                type: "*",
-                clob_auth: {
-                    key: "xxxxxx-xxxx-xxxx-xxxx-xxxxxx",
-                    secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                    passphrase: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                },
-            },
         ],
     });
 

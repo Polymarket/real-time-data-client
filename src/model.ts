@@ -1,18 +1,4 @@
 /**
- * API key credentials for CLOB authentication.
- */
-export interface ClobApiKeyCreds {
-    /** API key used for authentication */
-    key: string;
-
-    /** API secret associated with the key */
-    secret: string;
-
-    /** Passphrase required for authentication */
-    passphrase: string;
-}
-
-/**
  * Authentication details for Gamma authentication.
  */
 export interface GammaAuth {
@@ -33,9 +19,6 @@ export interface SubscriptionMessage {
 
         /** Optional filters for the subscription */
         filters?: string;
-
-        /** Optional CLOB authentication credentials */
-        clob_auth?: ClobApiKeyCreds;
 
         /** Optional Gamma authentication credentials */
         gamma_auth?: GammaAuth;

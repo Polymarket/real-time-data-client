@@ -83,53 +83,17 @@ client.disconnect();
 
 ## Messages hierarchy
 
-| Topic                     | Type               | Auth     | Filters (if it is empty the messages won't be filtered)         | Schema                              | Subscription Handler                                        |
-| ------------------------- | ------------------ | -------- | --------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------- |
-| `activity`                | `trades`           | -        | `{"event_slug":"string"}' OR '{"market_slug":"string"}`         | [`Trade`](#trade)                   |                                                             |
-| `activity`                | `orders_matched`   | -        | `{"event_slug":"string"}' OR '{"market_slug":"string"}`         | [`Trade`](#trade)                   |                                                             |
-| `comments`                | `comment_created`  | -        | `{"parentEntityID":number,"parentEntityType":"Event / Series"}` | [`Comment`](#comment)               |                                                             |
-| `comments`                | `comment_removed`  | -        | `{"parentEntityID":number,"parentEntityType":"Event / Series"}` | [`Comment`](#comment)               |                                                             |
-| `comments`                | `reaction_created` | -        | `{"parentEntityID":number,"parentEntityType":"Event / Series"}` | [`Reaction`](#reaction)             |                                                             |
-| `comments`                | `reaction_removed` | -        | `{"parentEntityID":number,"parentEntityType":"Event / Series"}` | [`Reaction`](#reaction)             |                                                             |
-| `crypto_prices`           | `update`           | -        | `{"symbol":string}`                                             | [`CryptoPrice`](#cryptoprice)       | [`CryptoPriceHistorical`](#initial-data-dump-on-connection) |
-| `crypto_prices_chainlink` | `update`           | -        | `{"symbol":string}`                                             | [`CryptoPrice`](#cryptoprice)       | [`CryptoPriceHistorical`](#initial-data-dump-on-connection) |
-| `equity_prices` | `update`           | -        | `{"symbol":string}`                                             | [`EquityPrice`](#equityprice)       | [`EquityPriceHistorical`](#initial-data-dump-on-connection) |
-
-## Auth
-
-### ClobAuth
-
-```typescript
-/**
- * API key credentials for CLOB authentication.
- */
-export interface ClobApiKeyCreds {
-    /** API key used for authentication */
-    key: string;
-
-    /** API secret associated with the key */
-    secret: string;
-
-    /** Passphrase required for authentication */
-    passphrase: string;
-}
-```
-
-```typescript
-client.subscribe({
-    subscriptions: [
-        {
-            topic: "clob_user",
-            type: "*",
-            clob_auth: {
-                key: "xxxxxx-xxxx-xxxxx-xxxx-xxxxxx",
-                secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                passphrase: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-            },
-        },
-    ],
-});
-```
+| Topic                     | Type               | Filters (if it is empty the messages won't be filtered)         | Schema                              | Subscription Handler                                        |
+| ------------------------- | ------------------ | --------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------- |
+| `activity`                | `trades`           | `{"event_slug":"string"}' OR '{"market_slug":"string"}`         | [`Trade`](#trade)                   |                                                             |
+| `activity`                | `orders_matched`   | `{"event_slug":"string"}' OR '{"market_slug":"string"}`         | [`Trade`](#trade)                   |                                                             |
+| `comments`                | `comment_created`  | `{"parentEntityID":number,"parentEntityType":"Event / Series"}` | [`Comment`](#comment)               |                                                             |
+| `comments`                | `comment_removed`  | `{"parentEntityID":number,"parentEntityType":"Event / Series"}` | [`Comment`](#comment)               |                                                             |
+| `comments`                | `reaction_created` | `{"parentEntityID":number,"parentEntityType":"Event / Series"}` | [`Reaction`](#reaction)             |                                                             |
+| `comments`                | `reaction_removed` | `{"parentEntityID":number,"parentEntityType":"Event / Series"}` | [`Reaction`](#reaction)             |                                                             |
+| `crypto_prices`           | `update`           | `{"symbol":string}`                                             | [`CryptoPrice`](#cryptoprice)       | [`CryptoPriceHistorical`](#initial-data-dump-on-connection) |
+| `crypto_prices_chainlink` | `update`           | `{"symbol":string}`                                             | [`CryptoPrice`](#cryptoprice)       | [`CryptoPriceHistorical`](#initial-data-dump-on-connection) |
+| `equity_prices`           | `update`           | `{"symbol":string}`                                             | [`EquityPrice`](#equityprice)       | [`EquityPriceHistorical`](#initial-data-dump-on-connection) |
 
 ## Message types
 
