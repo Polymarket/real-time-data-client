@@ -63,7 +63,7 @@ client.subscribe({
 Unsubscribe from the new trades messages of the topic 'activity'. If 'activity' has more messages types and I used '\*' to connect to all of them, this will only unsubscribe from the type 'trades'.
 
 ```typescript
-client.subscribe({
+client.unsubscribe({
     subscriptions: [
         {
             topic: "activity",
