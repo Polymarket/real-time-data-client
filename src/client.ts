@@ -165,7 +165,18 @@ export class RealTimeDataClient {
                 const message = JSON.parse(event.data);
                 this.onCustomMessage(this, message as Message);
             } else {
-                console.log("onMessage error", { event });
+                try {
+                    const parsed = JSON.parse(event.data);
+                    if (parsed.message && typeof parsed.message === "string") {
+                        const errorMsg = parsed.message.toLowerCase();
+                        if (errorMsg.includes("invalid request body")) {
+                            return;
+                        }
+                    }
+                    console.log("onMessage error", { event });
+                } catch {
+                    console.log("onMessage error", { event });
+                }
             }
         }
     };
@@ -186,12 +197,22 @@ export class RealTimeDataClient {
         if (this.ws.readyState !== WebSocket.OPEN) {
             return console.warn("Socket not open. Ready state is:", this.ws.readyState);
         }
-        this.ws.send(JSON.stringify({ action: "subscribe", ...msg }), (err?: Error) => {
-            if (err) {
-                console.error("subscribe error", err);
-                this.ws.close();
+        const ws = this.ws;
+        try {
+            ws.send(JSON.stringify({ action: "subscribe", ...msg }), (err?: Error) => {
+                if (err) {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        console.error("subscribe error", err);
+                        ws.close();
+                    }
+                }
+            });
+        } catch (error) {
+            if (ws.readyState === WebSocket.OPEN) {
+                console.error("subscribe exception", error);
+                ws.close();
             }
-        });
+        }
     }
 
     /**
@@ -200,15 +221,24 @@ export class RealTimeDataClient {
      */
     public unsubscribe(msg: SubscriptionMessage) {
         if (this.ws.readyState !== WebSocket.OPEN) {
-            return console.warn("Socket not open. Ready state is:", this.ws.readyState);
+            return;
         }
-        console.log("unsubscribing", { msg });
-        this.ws.send(JSON.stringify({ action: "unsubscribe", ...msg }), (err?: Error) => {
-            if (err) {
-                console.error("unsubscribe error", err);
-                this.ws.close();
+        const ws = this.ws;
+        try {
+            ws.send(JSON.stringify({ action: "unsubscribe", ...msg }), (err?: Error) => {
+                if (err) {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        console.error("unsubscribe error", err);
+                        ws.close();
+                    }
+                }
+            });
+        } catch (error) {
+            if (ws.readyState === WebSocket.OPEN) {
+                console.error("unsubscribe exception", error);
+                ws.close();
             }
-        });
+        }
     }
 
     /**
