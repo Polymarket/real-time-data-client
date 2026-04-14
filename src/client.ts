@@ -38,6 +38,19 @@ export interface RealTimeDataClientArgs {
     pingInterval?: number;
 
     /**
+     * Optional callback function that is called when the connection is closed.
+     * @param code - The close code.
+     * @param reason - The reason for closure.
+     */
+    onClose?: (code: number, reason: string) => void;
+
+    /**
+     * Optional callback function that is called when a connection error occurs.
+     * @param error - The error event.
+     */
+    onError?: (error: ErrorEvent) => void;
+
+    /**
      * Optional flag to enable or disable automatic reconnection when the connection is lost.
      */
     autoReconnect?: boolean;
@@ -66,6 +79,12 @@ export class RealTimeDataClient {
     /** Callback function executed on a connection status update */
     private readonly onStatusChange?: (status: ConnectionStatus) => void;
 
+    /** Callback function executed when the connection is closed */
+    private readonly onCloseCallback?: (code: number, reason: string) => void;
+
+    /** Callback function executed when a connection error occurs */
+    private readonly onErrorCallback?: (error: ErrorEvent) => void;
+
     /** WebSocket instance */
     private ws!: WebSocket;
 
@@ -76,10 +95,12 @@ export class RealTimeDataClient {
     constructor(args?: RealTimeDataClientArgs) {
         this.host = args!.host || DEFAULT_HOST;
         this.pingInterval = args!.pingInterval || DEFAULT_PING_INTERVAL;
-        this.autoReconnect = args!.autoReconnect || true;
+        this.autoReconnect = args!.autoReconnect ?? true;
         this.onCustomMessage = args!.onMessage;
         this.onConnect = args!.onConnect;
         this.onStatusChange = args!.onStatusChange;
+        this.onCloseCallback = args!.onClose;
+        this.onErrorCallback = args!.onError;
     }
 
     /**
@@ -122,6 +143,9 @@ export class RealTimeDataClient {
      */
     private onError = async (err: ErrorEvent) => {
         console.error("error", err);
+        if (this.onErrorCallback) {
+            this.onErrorCallback(err);
+        }
         if (this.autoReconnect) {
             this.connect();
         }
@@ -135,6 +159,9 @@ export class RealTimeDataClient {
     private onClose = async (message: CloseEvent) => {
         console.error("disconnected", "code", message.code, "reason", message.reason);
         this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
+        if (this.onCloseCallback) {
+            this.onCloseCallback(message.code, String(message.reason));
+        }
         if (this.autoReconnect) {
             this.connect();
         }
