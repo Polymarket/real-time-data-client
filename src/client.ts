@@ -144,7 +144,11 @@ export class RealTimeDataClient {
     private onError = async (err: ErrorEvent) => {
         console.error("error", err);
         if (this.onErrorCallback) {
-            this.onErrorCallback(err);
+            try {
+                this.onErrorCallback(err);
+            } catch (e) {
+                console.error('Error in onErrorCallback:', e);
+            }
         }
         if (this.autoReconnect) {
             this.connect();
