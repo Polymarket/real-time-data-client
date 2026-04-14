@@ -164,7 +164,11 @@ export class RealTimeDataClient {
         console.error("disconnected", "code", message.code, "reason", message.reason);
         this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
         if (this.onCloseCallback) {
-            this.onCloseCallback(message.code, String(message.reason));
+            try {
+                this.onCloseCallback(message.code, String(message.reason));
+            } catch (e) {
+                console.error('Error in onCloseCallback:', e);
+            }
         }
         if (this.autoReconnect) {
             this.connect();
