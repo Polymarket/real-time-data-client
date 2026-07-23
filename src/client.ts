@@ -198,11 +198,18 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       };
 
       /**
-       * Handles WebSocket errors. Notifies caller and schedules a reconnect with back-off.
+       * Handles WebSocket errors. Notifies the user onError callback.
+       *
+       * Does NOT emit notifyStatusChange(DISCONNECTED) here — onClose always fires
+       * after onError in the WebSocket lifecycle, so DISCONNECTED is emitted exactly
+       * once from onClose. Emitting it here too would cause onStatusChange to fire
+       * twice for a single connection drop.
+       *
+       * Does NOT call scheduleReconnect() here for the same reason: onClose will
+       * handle reconnection once, preventing a double-reconnect.
        *
        * Guards with id === connectionId so that a stale error from a previous socket
-       * does not falsely mark the client DISCONNECTED or fire the user's onError
-       * callback while the current socket is healthy.
+       * does not invoke the user's onError callback while the current socket is healthy.
        */
       private onError = (id: number, err: ErrorEvent) => {
           if (id !== this.connectionId) return;
@@ -210,18 +217,18 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
           if (this.onUserError) {
               try { this.onUserError(this, err); } catch (e) { console.error("onError callback threw:", e); }
           }
-          this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
-          if (this.autoReconnect) {
-              this.scheduleReconnect();
-          }
       };
 
       /**
-       * Handles WebSocket close event. Notifies caller and schedules a reconnect with back-off.
+       * Handles WebSocket close event. Emits DISCONNECTED status, fires onClose callback,
+       * and schedules a reconnect with exponential back-off if autoReconnect is enabled.
+       *
+       * This is the single place that emits DISCONNECTED — onError intentionally does not
+       * emit it, since onClose always follows onError and emitting from both would produce
+       * duplicate status events for a single connection drop.
        *
        * Guards with id === connectionId so that a stale close from a previous socket
-       * does not falsely mark the client DISCONNECTED or fire the user's onClose
-       * callback while the current socket is healthy.
+       * does not falsely mark the client DISCONNECTED while the current socket is healthy.
        */
       private onClose = (id: number, message: CloseEvent) => {
           if (id !== this.connectionId) return;
@@ -245,9 +252,10 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
        * connect() to be called in a tight loop, accumulating WebSocket objects faster
        * than the garbage collector can free them (see issue #38).
        *
-       * The early-return on reconnectTimer prevents a second schedule if both onError
-       * and onClose fire on the same socket (both are now gated by id === connectionId
-       * so only one can win, but this guard is kept as defence-in-depth).
+       * The timer callback re-checks autoReconnect before calling connect(). This closes
+       * a race window where disconnect() is called after the timer has already fired and
+       * its callback is queued — clearTimeout() cannot cancel a callback that has already
+       * entered the task queue, so the check here is the last line of defence.
        */
       private scheduleReconnect() {
           if (this.reconnectTimer !== null) return;
@@ -260,7 +268,12 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
           console.log("Reconnecting in " + Math.round(delayMs) + "ms (attempt " + this.reconnectAttempt + ")");
           this.reconnectTimer = setTimeout(() => {
               this.reconnectTimer = null;
-              this.connect();
+              // Re-check autoReconnect here to handle the race where disconnect() is
+              // called after the timer fires but before this callback runs. clearTimeout()
+              // cannot stop a callback that is already in the task queue.
+              if (this.autoReconnect) {
+                  this.connect();
+              }
           }, delayMs);
       }
 
