@@ -89,7 +89,7 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       /** Maximum back-off delay in milliseconds */
       private readonly maxReconnectDelay: number;
 
-      /** Current reconnect attempt count — used to compute exponential back-off */
+      /** Current reconnect attempt count - used to compute exponential back-off */
       private reconnectAttempt = 0;
 
       /** Pending setTimeout handle for the next reconnect attempt */
@@ -115,10 +115,14 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
 
       /**
        * Monotonically-increasing id stamped onto each WebSocket at connect() time.
-       * close/error handlers compare their captured id against the current value to
-       * decide whether they belong to the live socket or a stale dying one. This
-       * prevents the double-reconnect triggered when both onError and onClose fire
-       * on the same closed socket.
+       *
+       * Every handler (onOpen, onClose, onError) captures this id in its closure
+       * and checks it against the current value before acting. This guarantees that
+       * a delayed or stale event from a superseded socket cannot:
+       *   - reset reconnectAttempt / start a duplicate ping loop (onOpen)
+       *   - falsely mark the client DISCONNECTED (onClose / onError)
+       *   - fire user callbacks against the wrong lifecycle
+       *   - trigger a double reconnect when both onError and onClose fire together
        */
       private connectionId = 0;
 
@@ -143,8 +147,17 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
 
       /**
        * Establishes a WebSocket connection to the server.
+       *
+       * Cancels any pending back-off timer before opening a new socket, preventing
+       * a scheduled retry from firing after the caller has already reconnected manually.
        */
       public connect() {
+          // Cancel a pending back-off timer. Without this, calling connect() manually
+          // while a retry is scheduled causes the timer to fire and open a second socket.
+          if (this.reconnectTimer !== null) {
+              clearTimeout(this.reconnectTimer);
+              this.reconnectTimer = null;
+          }
           const id = ++this.connectionId;
           this.notifyStatusChange(ConnectionStatus.CONNECTING);
           this.ws = new WebSocket(this.host);
@@ -160,8 +173,15 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
 
       /**
        * Handles WebSocket open event. Resets back-off, starts pinging, fires onConnect.
+       *
+       * Guards against stale open events from superseded sockets: a previous socket
+       * that was slow to connect could fire onOpen after connect() has already created
+       * a newer socket. Without the id check, that delayed open would reset
+       * reconnectAttempt, start a duplicate ping loop, and invoke onConnect against
+       * the wrong lifecycle.
        */
       private onOpen = (id: number) => {
+          if (id !== this.connectionId) return;
           this.reconnectAttempt = 0;
           this.ping();
           this.notifyStatusChange(ConnectionStatus.CONNECTED);
@@ -179,31 +199,38 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
 
       /**
        * Handles WebSocket errors. Notifies caller and schedules a reconnect with back-off.
-       * @param id Connection id captured at connect() time.
-       * @param err Error object describing the issue.
+       *
+       * Guards with id === connectionId so that a stale error from a previous socket
+       * does not falsely mark the client DISCONNECTED or fire the user's onError
+       * callback while the current socket is healthy.
        */
       private onError = (id: number, err: ErrorEvent) => {
+          if (id !== this.connectionId) return;
           console.error("error", err);
           if (this.onUserError) {
               try { this.onUserError(this, err); } catch (e) { console.error("onError callback threw:", e); }
           }
-          if (this.autoReconnect && id === this.connectionId) {
+          this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
+          if (this.autoReconnect) {
               this.scheduleReconnect();
           }
       };
 
       /**
        * Handles WebSocket close event. Notifies caller and schedules a reconnect with back-off.
-       * @param id Connection id captured at connect() time.
-       * @param message CloseEvent carrying the code and reason.
+       *
+       * Guards with id === connectionId so that a stale close from a previous socket
+       * does not falsely mark the client DISCONNECTED or fire the user's onClose
+       * callback while the current socket is healthy.
        */
       private onClose = (id: number, message: CloseEvent) => {
+          if (id !== this.connectionId) return;
           console.error("disconnected", "code", message.code, "reason", message.reason);
           this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
           if (this.onUserClose) {
               try { this.onUserClose(this, message); } catch (e) { console.error("onClose callback threw:", e); }
           }
-          if (this.autoReconnect && id === this.connectionId) {
+          if (this.autoReconnect) {
               this.scheduleReconnect();
           }
       };
@@ -217,6 +244,10 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
        * growth observed when a persistent network error (e.g. close code 1006) causes
        * connect() to be called in a tight loop, accumulating WebSocket objects faster
        * than the garbage collector can free them (see issue #38).
+       *
+       * The early-return on reconnectTimer prevents a second schedule if both onError
+       * and onClose fire on the same socket (both are now gated by id === connectionId
+       * so only one can win, but this guard is kept as defence-in-depth).
        */
       private scheduleReconnect() {
           if (this.reconnectTimer !== null) return;
@@ -263,7 +294,7 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       };
 
       /**
-       * Closes the WebSocket connection and cancels any pending reconnect.
+       * Closes the WebSocket connection and cancels any pending reconnect timer.
        */
       public disconnect() {
           this.autoReconnect = false;
