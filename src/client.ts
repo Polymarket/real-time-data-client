@@ -28,6 +28,21 @@ export interface RealTimeDataClientArgs {
     onStatusChange?: (status: ConnectionStatus) => void;
 
     /**
+     * Optional callback function that is called when the connection is closed.
+     * Receives the close event so callers can inspect the code and reason.
+     * @param client - The instance of the RealTimeDataClient that disconnected.
+     * @param event - The WebSocket CloseEvent containing code and reason.
+     */
+    onClose?: (client: RealTimeDataClient, event: CloseEvent) => void;
+
+    /**
+     * Optional callback function that is called when a WebSocket error occurs.
+     * @param client - The instance of the RealTimeDataClient that errored.
+     * @param error - The ErrorEvent describing the error.
+     */
+    onError?: (client: RealTimeDataClient, error: ErrorEvent) => void;
+
+    /**
      * Optional host address to connect to.
      */
     host?: string;
@@ -39,6 +54,7 @@ export interface RealTimeDataClientArgs {
 
     /**
      * Optional flag to enable or disable automatic reconnection when the connection is lost.
+     * Defaults to true.
      */
     autoReconnect?: boolean;
 }
@@ -66,6 +82,12 @@ export class RealTimeDataClient {
     /** Callback function executed on a connection status update */
     private readonly onStatusChange?: (status: ConnectionStatus) => void;
 
+    /** User-provided callback executed when the connection closes */
+    private readonly onUserClose?: (client: RealTimeDataClient, event: CloseEvent) => void;
+
+    /** User-provided callback executed when a WebSocket error occurs */
+    private readonly onUserError?: (client: RealTimeDataClient, error: ErrorEvent) => void;
+
     /** WebSocket instance */
     private ws!: WebSocket;
 
@@ -76,10 +98,14 @@ export class RealTimeDataClient {
     constructor(args?: RealTimeDataClientArgs) {
         this.host = args!.host || DEFAULT_HOST;
         this.pingInterval = args!.pingInterval || DEFAULT_PING_INTERVAL;
-        this.autoReconnect = args!.autoReconnect || true;
+        // Fix: use ?? instead of || so that explicitly passing `false` is respected.
+        // Using `|| true` treated false as falsy and always enabled autoReconnect.
+        this.autoReconnect = args!.autoReconnect ?? true;
         this.onCustomMessage = args!.onMessage;
         this.onConnect = args!.onConnect;
         this.onStatusChange = args!.onStatusChange;
+        this.onUserClose = args!.onClose;
+        this.onUserError = args!.onError;
     }
 
     /**
@@ -117,24 +143,31 @@ export class RealTimeDataClient {
     };
 
     /**
-     * Handles WebSocket errors. Logs the error and attempts reconnection if `autoReconnect` is enabled.
+     * Handles WebSocket errors. Invokes the user-provided onError callback (if any),
+     * then attempts reconnection if `autoReconnect` is enabled.
      * @param err Error object describing the issue.
      */
     private onError = async (err: ErrorEvent) => {
         console.error("error", err);
+        if (this.onUserError) {
+            this.onUserError(this, err);
+        }
         if (this.autoReconnect) {
             this.connect();
         }
     };
 
     /**
-     * Handles WebSocket 'close' event. Logs the disconnect reason and attempts reconnection if `autoReconnect` is enabled.
-     * @param code Close event code.
-     * @param reason Buffer containing the reason for closure.
+     * Handles WebSocket 'close' event. Invokes the user-provided onClose callback (if any),
+     * logs the disconnect reason, and attempts reconnection if `autoReconnect` is enabled.
+     * @param message Close event containing code and reason.
      */
     private onClose = async (message: CloseEvent) => {
         console.error("disconnected", "code", message.code, "reason", message.reason);
         this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
+        if (this.onUserClose) {
+            this.onUserClose(this, message);
+        }
         if (this.autoReconnect) {
             this.connect();
         }
@@ -171,14 +204,6 @@ export class RealTimeDataClient {
     };
 
     /**
-     * Closes the WebSocket connection.
-     */
-    public disconnect() {
-        this.autoReconnect = false;
-        this.ws.close();
-    }
-
-    /**
      * Subscribes to a data stream by sending a subscription message.
      * @param msg Subscription request message.
      */
@@ -209,6 +234,14 @@ export class RealTimeDataClient {
                 this.ws.close();
             }
         });
+    }
+
+    /**
+     * Closes the WebSocket connection.
+     */
+    public disconnect() {
+        this.autoReconnect = false;
+        this.ws.close();
     }
 
     /**
