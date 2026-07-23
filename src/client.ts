@@ -120,7 +120,6 @@ export class RealTimeDataClient {
      * Establishes a WebSocket connection to the server.
      */
     public connect() {
-        this.isReconnecting = false;
         this.notifyStatusChange(ConnectionStatus.CONNECTING);
         this.ws = new WebSocket(this.host);
         if (this.ws) {
@@ -137,6 +136,11 @@ export class RealTimeDataClient {
      * Handles WebSocket 'open' event. Executes the `onConnect` callback and starts pinging.
      */
     private onOpen = async () => {
+        // The new socket is established: clear the guard so future disconnects
+        // on this socket can trigger a fresh reconnect. (Cursor Bugbot review:
+        // clearing it in connect() reset the flag before the dying socket's
+        // onClose fired, allowing a duplicate reconnect.)
+        this.isReconnecting = false;
         this.ping();
         this.notifyStatusChange(ConnectionStatus.CONNECTED);
         if (this.onConnect) {
