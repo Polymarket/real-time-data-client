@@ -191,12 +191,11 @@ export class RealTimeDataClient {
      * @param message Close event containing code and reason.
      */
     private onClose = async (message: CloseEvent, id: number) => {
-        // Stale socket: onError already triggered connect() for this socket,
-        // incrementing connectionId. Suppress all notifications to prevent a
-        // spurious DISCONNECTED status after the new connection is in flight.
-        if (id !== this.connectionId) {
-            return;
-        }
+        // Always deliver DISCONNECTED and the onUserClose callback regardless
+        // of whether this is a stale socket. The CloseEvent carries close-code
+        // and reason details that are only available here (not in onError), so
+        // callers need them even when onError already ran and a reconnect is
+        // already in flight. (Cursor Bugbot: "Stale close skips callbacks")
         console.error("disconnected", "code", message.code, "reason", message.reason);
         this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
         // Guard: wrap callback so a throwing onClose handler does not abort
@@ -208,11 +207,10 @@ export class RealTimeDataClient {
         } catch (callbackError) {
             console.error("Error in onClose callback:", callbackError);
         }
-        // id === connectionId here, so this is the current socket closing.
-        // connect() will increment connectionId; if onError already fired and
-        // called connect(), this onClose will have id !== connectionId (caught
-        // by the early return above). Safe to reconnect unconditionally here.
-        if (this.autoReconnect) {
+        // Only trigger a reconnect from the current socket. If onError already
+        // called connect() for this socket, connectionId was incremented and id
+        // is now stale — skip to avoid opening a duplicate connection.
+        if (this.autoReconnect && id === this.connectionId) {
             this.connect();
         }
     };
