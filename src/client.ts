@@ -120,12 +120,13 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       /**
        * Monotonically-increasing id stamped onto each WebSocket at connect() time.
        *
-       * Every handler (onOpen, onClose, onError) captures this id in its closure
-       * and checks it against the current value before acting. This guarantees that
-       * a delayed or stale event from a superseded socket cannot:
+       * Every handler (onOpen, onClose, onError, onPong) captures this id in its
+       * closure and checks it against the current value before acting. This guarantees
+       * that a delayed or stale event from a superseded socket cannot:
        *   - reset reconnectAttempt / start a duplicate ping loop (onOpen)
        *   - falsely mark the client DISCONNECTED (onClose / onError)
        *   - fire user callbacks against the wrong lifecycle
+       *   - continue a keepalive ping chain from a dead connection (onPong)
        *   - trigger a double reconnect when both onError and onClose fire together
        */
       private connectionId = 0;
@@ -194,7 +195,7 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
               this.ws.onmessage = this.onMessage;
               this.ws.onclose = (event: CloseEvent) => this.onClose(id, event);
               this.ws.onerror = (err: ErrorEvent) => this.onError(id, err);
-              this.ws.pong = this.onPong;
+              this.ws.pong = (data: Buffer) => this.onPong(id);
           }
           return this;
       }
@@ -219,10 +220,24 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       };
 
       /**
-       * Handles WebSocket pong event. Continues the ping cycle.
+       * Handles WebSocket pong event. Schedules the next ping after the configured interval.
+       *
+       * Captures connectionId at the moment the pong arrives and re-checks it when the
+       * delay resolves. If connect() has superseded the socket in the meantime, the stale
+       * pong chain's deferred ping() call is suppressed — preventing duplicate keepalive
+       * traffic on the new connection from an old, dead ping/pong loop.
+       *
+       * @param id - Connection id captured when the pong handler was registered in connect().
        */
-      private onPong = async () => {
-          delay(this.pingInterval).then(() => this.ping());
+      private onPong = (id: number) => {
+          delay(this.pingInterval).then(() => {
+              // Only continue the ping loop if this pong belongs to the current socket.
+              // Without this check, a superseded socket's pending delay resolves and calls
+              // ping() against this.ws (the new socket), duplicating keepalive traffic.
+              if (id === this.connectionId) {
+                  this.ping();
+              }
+          });
       };
 
       /**
