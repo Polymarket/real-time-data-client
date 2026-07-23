@@ -91,6 +91,11 @@ export class RealTimeDataClient {
     /** WebSocket instance */
     private ws!: WebSocket;
 
+    /** Guard flag: true while a reconnect is already in flight, preventing
+     *  a second connect() call when both onError and the subsequent onClose
+     *  fire in quick succession on the same error-driven disconnect. */
+    private isReconnecting = false;
+
     /**
      * Constructs a new RealTimeDataClient instance.
      * @param args Configuration options for the client.
@@ -112,6 +117,7 @@ export class RealTimeDataClient {
      * Establishes a WebSocket connection to the server.
      */
     public connect() {
+        this.isReconnecting = false;
         this.notifyStatusChange(ConnectionStatus.CONNECTING);
         this.ws = new WebSocket(this.host);
         if (this.ws) {
@@ -158,12 +164,13 @@ export class RealTimeDataClient {
         } catch (callbackError) {
             console.error("Error in onError callback:", callbackError);
         }
-        if (this.autoReconnect) {
-            // Detach the close handler from the dying socket before connect()
-            // replaces this.ws. Without this, the old socket fires its natural
-            // close event after the error, causing a spurious onUserClose call
-            // and a second connect() loop. (Cursor Bugbot review)
-            this.ws.onclose = null;
+        if (this.autoReconnect && !this.isReconnecting) {
+            // Set the guard before connect() so that the dying socket's natural
+            // close event (which fires shortly after the error) finds the flag
+            // already set and skips the second connect() call — while still
+            // delivering the DISCONNECTED status and onClose callback normally.
+            // (Cursor Bugbot review: ws.onclose=null suppressed those notifications)
+            this.isReconnecting = true;
             this.connect();
         }
     };
@@ -185,7 +192,8 @@ export class RealTimeDataClient {
         } catch (callbackError) {
             console.error("Error in onClose callback:", callbackError);
         }
-        if (this.autoReconnect) {
+        if (this.autoReconnect && !this.isReconnecting) {
+            this.isReconnecting = true;
             this.connect();
         }
     };
