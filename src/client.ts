@@ -89,7 +89,11 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       /** Maximum back-off delay in milliseconds */
       private readonly maxReconnectDelay: number;
 
-      /** Current reconnect attempt count - used to compute exponential back-off */
+      /**
+       * Current reconnect attempt count — used to compute exponential back-off.
+       * Reset to 0 on successful open, on disconnect(), and when connect() cancels
+       * a pending timer (i.e. a manual reconnect that overrides the back-off schedule).
+       */
       private reconnectAttempt = 0;
 
       /** Pending setTimeout handle for the next reconnect attempt */
@@ -148,15 +152,20 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       /**
        * Establishes a WebSocket connection to the server.
        *
-       * Cancels any pending back-off timer before opening a new socket, preventing
-       * a scheduled retry from firing after the caller has already reconnected manually.
+       * If called while a back-off timer is pending (e.g. the caller manually
+       * triggers a reconnect before the scheduled delay expires), the timer is
+       * cancelled and reconnectAttempt is reset so the next failure starts the
+       * back-off from the initial delay rather than an inherited large exponent.
        */
       public connect() {
           // Cancel a pending back-off timer. Without this, calling connect() manually
           // while a retry is scheduled causes the timer to fire and open a second socket.
+          // Also reset the attempt counter: a manual connect signals intent to start fresh,
+          // so the next auto-reconnect sequence should begin from the initial delay.
           if (this.reconnectTimer !== null) {
               clearTimeout(this.reconnectTimer);
               this.reconnectTimer = null;
+              this.reconnectAttempt = 0;
           }
           const id = ++this.connectionId;
           this.notifyStatusChange(ConnectionStatus.CONNECTING);
@@ -227,8 +236,10 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
        * emit it, since onClose always follows onError and emitting from both would produce
        * duplicate status events for a single connection drop.
        *
-       * Guards with id === connectionId so that a stale close from a previous socket
-       * does not falsely mark the client DISCONNECTED while the current socket is healthy.
+       * The connectionId is re-checked after the user's onClose callback because the
+       * callback itself may call connect() to reconnect immediately. If it did, connectionId
+       * has already advanced and we must not also call scheduleReconnect() — that would
+       * open a second socket on top of the one the callback just created.
        */
       private onClose = (id: number, message: CloseEvent) => {
           if (id !== this.connectionId) return;
@@ -237,7 +248,10 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
           if (this.onUserClose) {
               try { this.onUserClose(this, message); } catch (e) { console.error("onClose callback threw:", e); }
           }
-          if (this.autoReconnect) {
+          // Re-check: the user's onClose callback may have called connect(), which
+          // increments connectionId. If so, skip scheduleReconnect() — a socket is
+          // already being opened and adding another reconnect would duplicate it.
+          if (this.autoReconnect && id === this.connectionId) {
               this.scheduleReconnect();
           }
       };
@@ -308,9 +322,16 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
 
       /**
        * Closes the WebSocket connection and cancels any pending reconnect timer.
+       *
+       * Also resets reconnectAttempt to 0 so that if the caller later re-enables
+       * autoReconnect and calls connect() again, the back-off sequence starts from
+       * the initial delay rather than the large exponent accumulated during the
+       * previous failure run.
        */
       public disconnect() {
           this.autoReconnect = false;
+          // Reset back-off counter so a subsequent connect()/re-enable starts fresh.
+          this.reconnectAttempt = 0;
           if (this.reconnectTimer !== null) {
               clearTimeout(this.reconnectTimer);
               this.reconnectTimer = null;
