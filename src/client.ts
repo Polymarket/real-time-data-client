@@ -133,15 +133,21 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
 
       /**
        * The id of the most recent socket that successfully reached the OPEN state.
-       * Set to the socket's id inside onOpen.
+       * Set to the socket's id inside onOpen alongside the CONNECTED status emission.
        *
-       * Used by onClose to decide whether to emit DISCONNECTED and invoke onUserClose
-       * even when connectionId has already advanced (e.g. because onUserError or a
-       * manual caller invoked connect() before the close event fired). A socket that
-       * genuinely connected deserves a DISCONNECTED notification regardless of whether
-       * a replacement socket is already opening. A socket that was replaced before it
-       * ever opened does not — it never published a CONNECTED status so there is no
-       * paired DISCONNECTED to emit.
+       * Used by onClose to make two independent decisions:
+       *
+       * 1. Notify? — only if wasConnected (id === lastConnectedId).
+       *    A socket that reached CONNECTED published a status event; its close must
+       *    publish the paired DISCONNECTED. A socket that never opened (failed
+       *    handshake, or replaced before connecting) must NOT emit DISCONNECTED —
+       *    doing so violates the state machine by producing CONNECTING → DISCONNECTED
+       *    without CONNECTED in between.
+       *
+       * 2. Reconnect? — only if isCurrent (id === connectionId).
+       *    Retry the connection regardless of whether the socket ever connected;
+       *    a failed handshake is just as much a reason to back-off and retry as a
+       *    mid-session drop. Skip if a replacement socket is already opening.
        */
       private lastConnectedId = -1;
 
@@ -174,9 +180,10 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
        *   and connection-limit leaks when connect() is called while a socket is live.
        *
        * Ordering is critical: connectionId is incremented BEFORE the old socket is
-       * closed. This ensures the old socket's onClose/onError handlers see a stale id
-       * and apply the correct notification logic (emit DISCONNECTED if the socket was
-       * ever connected, skip reconnect since a replacement is already starting).
+       * closed. This ensures the old socket's onClose handler sees a stale id and
+       * applies the correct notification logic — emit DISCONNECTED only if it was
+       * ever connected (lastConnectedId), skip reconnect since a replacement is
+       * already starting.
        *
        * Also resets reconnectAttempt when it cancels a pending timer, so a manual
        * reconnect always starts the back-off sequence from the initial delay.
@@ -190,14 +197,13 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
               this.reconnectAttempt = 0;
           }
 
-          // Increment connectionId FIRST. Old socket handlers capture the previous id
-          // and will use it to decide whether to emit notifications (based on
-          // lastConnectedId) vs. whether to schedule a reconnect (based on connectionId).
+          // Increment connectionId FIRST so that when we close the old socket below,
+          // its onClose fires with a stale id and follows the correct notification
+          // path (emit DISCONNECTED only if it was previously connected).
           const id = ++this.connectionId;
 
-          // Close the previous socket if it is still open. Without this, each call to
-          // connect() while a socket is live abandons the old socket on the network,
-          // leaking file descriptors and browser/server connection slots.
+          // Close the previous socket if still open to prevent resource leaks.
+          // Handlers are already stale (id check) so this close is silent.
           if (this.ws && this.ws.readyState !== WebSocket.CLOSED && this.ws.readyState !== WebSocket.CLOSING) {
               this.ws.close();
           }
@@ -215,19 +221,19 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       }
 
       /**
-       * Handles WebSocket open event. Resets back-off, records lastConnectedId,
-       * starts pinging, and fires onConnect.
+       * Handles WebSocket open event. Records lastConnectedId, resets back-off,
+       * starts pinging, emits CONNECTED, and fires onConnect.
        *
-       * Recording lastConnectedId here is the key: it marks this socket as having
-       * genuinely reached CONNECTED state, so that onClose can emit a paired
-       * DISCONNECTED notification even if connectionId has advanced by then.
+       * Setting lastConnectedId here is the authoritative record that this socket
+       * reached CONNECTED state. onClose uses it to decide whether to emit the
+       * paired DISCONNECTED notification.
        *
        * Guards against stale open events from superseded sockets.
        */
       private onOpen = (id: number) => {
           if (id !== this.connectionId) return;
-          this.reconnectAttempt = 0;
           this.lastConnectedId = id;
+          this.reconnectAttempt = 0;
           this.ping();
           this.notifyStatusChange(ConnectionStatus.CONNECTED);
           if (this.onConnect) {
@@ -236,12 +242,9 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       };
 
       /**
-       * Handles WebSocket pong event. Schedules the next ping after the configured interval.
-       *
-       * Captures connectionId at the moment the pong arrives and re-checks it when the
-       * delay resolves. If connect() has superseded the socket in the meantime, the stale
-       * pong chain's deferred ping() call is suppressed — preventing duplicate keepalive
-       * traffic on the new connection from an old, dead ping/pong loop.
+       * Handles WebSocket pong event. Schedules the next ping after the configured
+       * interval, tied to the connection id so a stale pong chain from a superseded
+       * socket cannot duplicate keepalive traffic on the current connection.
        */
       private onPong = (id: number) => {
           delay(this.pingInterval).then(() => {
@@ -254,16 +257,12 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       /**
        * Handles WebSocket errors. Notifies the user onError callback.
        *
-       * Does NOT emit notifyStatusChange(DISCONNECTED) here — onClose always fires
-       * after onError in the WebSocket lifecycle, so DISCONNECTED is emitted exactly
-       * once from onClose. Emitting it here too would cause onStatusChange to fire
-       * twice for a single connection drop.
+       * Does NOT emit DISCONNECTED — onClose always fires after onError in the
+       * WebSocket lifecycle and is the single place that decides whether to emit
+       * DISCONNECTED (only when the socket previously reached CONNECTED state).
        *
-       * Does NOT call scheduleReconnect() here for the same reason: onClose will
-       * handle reconnection once, preventing a double-reconnect.
-       *
-       * Guards with id === connectionId so that a stale error from a previous socket
-       * does not invoke the user's onError callback while the current socket is healthy.
+       * Does NOT schedule a reconnect — onClose handles that too, preventing a
+       * double-reconnect from both handlers firing on the same socket.
        */
       private onError = (id: number, err: ErrorEvent) => {
           if (id !== this.connectionId) return;
@@ -274,42 +273,51 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       };
 
       /**
-       * Handles WebSocket close event. Emits DISCONNECTED status, fires onClose callback,
-       * and schedules a reconnect with exponential back-off when appropriate.
+       * Handles WebSocket close event.
        *
-       * Two independent questions are answered with two independent checks:
+       * Three independent concerns are separated using two flags:
+       *   wasConnected = id === lastConnectedId  (socket reached OPEN state)
+       *   isCurrent    = id === connectionId     (no replacement socket started yet)
        *
-       * 1. Should we notify? (emit DISCONNECTED + invoke onUserClose)
-       *    Yes if this socket previously emitted CONNECTED (id === lastConnectedId).
-       *    This covers the case where connect() or disconnect() was called before the
-       *    close event fired — the socket genuinely was active and its close is
-       *    observable. A socket replaced before it ever opened is silently dropped
-       *    because no CONNECTED was ever published for it, so there is no paired
-       *    DISCONNECTED to emit.
+       * 1. DROP SILENTLY — if !wasConnected && !isCurrent
+       *    The socket never connected AND has already been superseded. Nothing was
+       *    ever published for it so there is nothing to unpublish.
        *
-       * 2. Should we reconnect? (scheduleReconnect)
-       *    Only if no replacement socket has been started yet (id === connectionId)
-       *    AND autoReconnect is enabled AND the user's onClose callback did not
-       *    itself call connect() (second connectionId re-check after the callback).
+       * 2. NOTIFY (DISCONNECTED + onUserClose) — only if wasConnected
+       *    A socket that reached CONNECTED published that status; its close must
+       *    emit the paired DISCONNECTED regardless of whether connectionId has
+       *    since advanced. A socket that closed before onOpen fired (failed
+       *    handshake, immediate network error) must NOT emit DISCONNECTED — that
+       *    would produce CONNECTING → DISCONNECTED without CONNECTED in between,
+       *    violating the state machine.
+       *
+       * 3. RECONNECT (scheduleReconnect) — only if isCurrent
+       *    Retry whenever the current socket closes, whether or not it ever
+       *    connected — a failed handshake is just as valid a reason to back-off
+       *    and retry as a mid-session drop. Skip if a replacement is already open.
+       *    Re-check connectionId after the user callback in case it called connect().
        */
       private onClose = (id: number, message: CloseEvent) => {
           const wasConnected = id === this.lastConnectedId;
           const isCurrent    = id === this.connectionId;
 
-          // Drop silently if this socket never reached CONNECTED and has already been
-          // superseded — nothing was published for it so there is nothing to unpublish.
           if (!wasConnected && !isCurrent) return;
 
           console.error("disconnected", "code", message.code, "reason", message.reason);
-          this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
 
-          if (this.onUserClose) {
-              try { this.onUserClose(this, message); } catch (e) { console.error("onClose callback threw:", e); }
+          // Emit DISCONNECTED and invoke onUserClose only when the socket previously
+          // reached CONNECTED state. A failed-handshake close must not emit DISCONNECTED
+          // (no CONNECTED was published so there is no paired status to unpublish).
+          if (wasConnected) {
+              this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
+              if (this.onUserClose) {
+                  try { this.onUserClose(this, message); } catch (e) { console.error("onClose callback threw:", e); }
+              }
           }
 
-          // Re-check connectionId after the user callback: the callback may have called
-          // connect(), which increments connectionId. If it did, a socket is already
-          // opening and we must not also schedule a reconnect on top of it.
+          // Reconnect if this is still the active connection and autoReconnect is on.
+          // Re-check connectionId after the user callback: if onUserClose called connect(),
+          // connectionId has advanced and we must not open a second socket on top.
           if (this.autoReconnect && isCurrent && id === this.connectionId) {
               this.scheduleReconnect();
           }
@@ -320,15 +328,9 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
        *
        *   delay = min(reconnectDelay x 2^attempt, maxReconnectDelay) + rand(0..1000) ms
        *
-       * Back-off prevents thundering herd on server restarts and stops the heap-memory
-       * growth observed when a persistent network error (e.g. close code 1006) causes
-       * connect() to be called in a tight loop, accumulating WebSocket objects faster
-       * than the garbage collector can free them (see issue #38).
-       *
-       * The timer callback re-checks autoReconnect before calling connect(). This closes
-       * a race window where disconnect() is called after the timer has already fired and
-       * its callback is queued — clearTimeout() cannot cancel a callback that has already
-       * entered the task queue, so the check here is the last line of defence.
+       * The timer callback re-checks autoReconnect before calling connect(). This
+       * closes a race where disconnect() is called after the timer fires but before
+       * this callback runs — clearTimeout() cannot stop a callback already queued.
        */
       private scheduleReconnect() {
           if (this.reconnectTimer !== null) return;
@@ -341,9 +343,6 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
           console.log("Reconnecting in " + Math.round(delayMs) + "ms (attempt " + this.reconnectAttempt + ")");
           this.reconnectTimer = setTimeout(() => {
               this.reconnectTimer = null;
-              // Re-check autoReconnect here to handle the race where disconnect() is
-              // called after the timer fires but before this callback runs. clearTimeout()
-              // cannot stop a callback that is already in the task queue.
               if (this.autoReconnect) {
                   this.connect();
               }
@@ -365,7 +364,7 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       };
 
       /**
-       * Handles incoming WebSocket messages. Parses and processes custom messages if applicable.
+       * Handles incoming WebSocket messages.
        * @param event Raw WebSocket message data.
        */
       private onMessage = (event: MessageEvent): void => {
@@ -381,15 +380,10 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
 
       /**
        * Closes the WebSocket connection and cancels any pending reconnect timer.
-       *
-       * Also resets reconnectAttempt to 0 so that if the caller later re-enables
-       * autoReconnect and calls connect() again, the back-off sequence starts from
-       * the initial delay rather than the large exponent accumulated during the
-       * previous failure run.
+       * Resets reconnectAttempt so a subsequent connect() starts back-off fresh.
        */
       public disconnect() {
           this.autoReconnect = false;
-          // Reset back-off counter so a subsequent connect()/re-enable starts fresh.
           this.reconnectAttempt = 0;
           if (this.reconnectTimer !== null) {
               clearTimeout(this.reconnectTimer);
