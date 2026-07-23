@@ -283,7 +283,12 @@ export class RealTimeDataClient {
      */
     public disconnect() {
         this.autoReconnect = false;
-        this.ws.close();
+        // Guard against calling close() before connect() has been called
+        // (this.ws is uninitialized — declared with ! assertion) and against
+        // closing a socket that is already CLOSING or CLOSED. (Graphite review)
+        if (this.ws && this.ws.readyState !== WebSocket.CLOSED && this.ws.readyState !== WebSocket.CLOSING) {
+            this.ws.close();
+        }
     }
 
     /**
