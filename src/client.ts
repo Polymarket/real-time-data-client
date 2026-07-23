@@ -149,10 +149,21 @@ export class RealTimeDataClient {
      */
     private onError = async (err: ErrorEvent) => {
         console.error("error", err);
-        if (this.onUserError) {
-            this.onUserError(this, err);
+        // Guard: wrap callback so a throwing onError handler does not abort
+        // the autoReconnect logic below. (Graphite review)
+        try {
+            if (this.onUserError) {
+                this.onUserError(this, err);
+            }
+        } catch (callbackError) {
+            console.error("Error in onError callback:", callbackError);
         }
         if (this.autoReconnect) {
+            // Detach the close handler from the dying socket before connect()
+            // replaces this.ws. Without this, the old socket fires its natural
+            // close event after the error, causing a spurious onUserClose call
+            // and a second connect() loop. (Cursor Bugbot review)
+            this.ws.onclose = null;
             this.connect();
         }
     };
@@ -165,8 +176,14 @@ export class RealTimeDataClient {
     private onClose = async (message: CloseEvent) => {
         console.error("disconnected", "code", message.code, "reason", message.reason);
         this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
-        if (this.onUserClose) {
-            this.onUserClose(this, message);
+        // Guard: wrap callback so a throwing onClose handler does not abort
+        // the autoReconnect logic below. (Symmetric with onError fix)
+        try {
+            if (this.onUserClose) {
+                this.onUserClose(this, message);
+            }
+        } catch (callbackError) {
+            console.error("Error in onClose callback:", callbackError);
         }
         if (this.autoReconnect) {
             this.connect();
