@@ -101,16 +101,19 @@ export class RealTimeDataClient {
      * @param args Configuration options for the client.
      */
     constructor(args?: RealTimeDataClientArgs) {
-        this.host = args!.host || DEFAULT_HOST;
-        this.pingInterval = args!.pingInterval || DEFAULT_PING_INTERVAL;
+        // Use optional chaining (args?.) throughout so that calling
+        // new RealTimeDataClient() with no arguments does not throw
+        // "Cannot read properties of undefined". (Graphite review)
+        this.host = args?.host || DEFAULT_HOST;
+        this.pingInterval = args?.pingInterval || DEFAULT_PING_INTERVAL;
         // Fix: use ?? instead of || so that explicitly passing `false` is respected.
         // Using `|| true` treated false as falsy and always enabled autoReconnect.
-        this.autoReconnect = args!.autoReconnect ?? true;
-        this.onCustomMessage = args!.onMessage;
-        this.onConnect = args!.onConnect;
-        this.onStatusChange = args!.onStatusChange;
-        this.onUserClose = args!.onClose;
-        this.onUserError = args!.onError;
+        this.autoReconnect = args?.autoReconnect ?? true;
+        this.onCustomMessage = args?.onMessage;
+        this.onConnect = args?.onConnect;
+        this.onStatusChange = args?.onStatusChange;
+        this.onUserClose = args?.onClose;
+        this.onUserError = args?.onError;
     }
 
     /**
