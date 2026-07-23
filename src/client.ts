@@ -91,10 +91,13 @@ export class RealTimeDataClient {
     /** WebSocket instance */
     private ws!: WebSocket;
 
-    /** Guard flag: true while a reconnect is already in flight, preventing
-     *  a second connect() call when both onError and the subsequent onClose
-     *  fire in quick succession on the same error-driven disconnect. */
-    private isReconnecting = false;
+    /** Monotonically-increasing counter stamped onto each socket at connect()
+     *  time. close/error handlers compare their captured id against this value
+     *  to decide whether they belong to the current socket or a stale dying one.
+     *  This is the only reliable way to prevent double-reconnect from onError+onClose
+     *  firing on the same socket while also allowing retry when a reconnect attempt
+     *  itself fails before onOpen. (Cursor Bugbot review) */
+    private connectionId = 0;
 
     /**
      * Constructs a new RealTimeDataClient instance.
@@ -120,13 +123,17 @@ export class RealTimeDataClient {
      * Establishes a WebSocket connection to the server.
      */
     public connect() {
+        // Stamp this socket with a unique id. Handlers that capture this id
+        // can detect whether they belong to the current socket or a stale one.
+        const id = ++this.connectionId;
         this.notifyStatusChange(ConnectionStatus.CONNECTING);
         this.ws = new WebSocket(this.host);
         if (this.ws) {
             this.ws.onopen = this.onOpen;
             this.ws.onmessage = this.onMessage;
-            this.ws.onclose = this.onClose;
-            this.ws.onerror = this.onError;
+            // Lambdas (not direct assignment) so we can pass the id through.
+            this.ws.onclose = (event: CloseEvent) => this.onClose(event, id);
+            this.ws.onerror = (err: ErrorEvent) => this.onError(err, id);
             this.ws.pong = this.onPong;
         }
         return this;
@@ -136,11 +143,6 @@ export class RealTimeDataClient {
      * Handles WebSocket 'open' event. Executes the `onConnect` callback and starts pinging.
      */
     private onOpen = async () => {
-        // The new socket is established: clear the guard so future disconnects
-        // on this socket can trigger a fresh reconnect. (Cursor Bugbot review:
-        // clearing it in connect() reset the flag before the dying socket's
-        // onClose fired, allowing a duplicate reconnect.)
-        this.isReconnecting = false;
         this.ping();
         this.notifyStatusChange(ConnectionStatus.CONNECTED);
         if (this.onConnect) {
@@ -160,7 +162,12 @@ export class RealTimeDataClient {
      * then attempts reconnection if `autoReconnect` is enabled.
      * @param err Error object describing the issue.
      */
-    private onError = async (err: ErrorEvent) => {
+    private onError = async (err: ErrorEvent, id: number) => {
+        // Stale socket: a newer connection is already in flight.
+        // onError on the dying old socket after we already called connect() — ignore.
+        if (id !== this.connectionId) {
+            return;
+        }
         console.error("error", err);
         // Guard: wrap callback so a throwing onError handler does not abort
         // the autoReconnect logic below. (Graphite review)
@@ -171,13 +178,9 @@ export class RealTimeDataClient {
         } catch (callbackError) {
             console.error("Error in onError callback:", callbackError);
         }
-        if (this.autoReconnect && !this.isReconnecting) {
-            // Set the guard before connect() so that the dying socket's natural
-            // close event (which fires shortly after the error) finds the flag
-            // already set and skips the second connect() call — while still
-            // delivering the DISCONNECTED status and onClose callback normally.
-            // (Cursor Bugbot review: ws.onclose=null suppressed those notifications)
-            this.isReconnecting = true;
+        // connect() increments connectionId, so the dying socket's onClose
+        // (which fires next) will see id !== connectionId and return early.
+        if (this.autoReconnect) {
             this.connect();
         }
     };
@@ -187,7 +190,13 @@ export class RealTimeDataClient {
      * logs the disconnect reason, and attempts reconnection if `autoReconnect` is enabled.
      * @param message Close event containing code and reason.
      */
-    private onClose = async (message: CloseEvent) => {
+    private onClose = async (message: CloseEvent, id: number) => {
+        // Stale socket: onError already triggered connect() for this socket,
+        // incrementing connectionId. Suppress all notifications to prevent a
+        // spurious DISCONNECTED status after the new connection is in flight.
+        if (id !== this.connectionId) {
+            return;
+        }
         console.error("disconnected", "code", message.code, "reason", message.reason);
         this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
         // Guard: wrap callback so a throwing onClose handler does not abort
@@ -199,8 +208,11 @@ export class RealTimeDataClient {
         } catch (callbackError) {
             console.error("Error in onClose callback:", callbackError);
         }
-        if (this.autoReconnect && !this.isReconnecting) {
-            this.isReconnecting = true;
+        // id === connectionId here, so this is the current socket closing.
+        // connect() will increment connectionId; if onError already fired and
+        // called connect(), this onClose will have id !== connectionId (caught
+        // by the early return above). Safe to reconnect unconditionally here.
+        if (this.autoReconnect) {
             this.connect();
         }
     };
