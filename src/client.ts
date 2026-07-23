@@ -152,22 +152,41 @@ import WebSocket, { MessageEvent, CloseEvent, ErrorEvent } from "isomorphic-ws";
       /**
        * Establishes a WebSocket connection to the server.
        *
-       * If called while a back-off timer is pending (e.g. the caller manually
-       * triggers a reconnect before the scheduled delay expires), the timer is
-       * cancelled and reconnectAttempt is reset so the next failure starts the
-       * back-off from the initial delay rather than an inherited large exponent.
+       * Safe to call at any time:
+       * - Cancels any pending back-off timer so a scheduled retry cannot open a
+       *   second socket alongside the one being created here.
+       * - Closes the previous WebSocket (if still open) to prevent file-descriptor
+       *   and connection-limit leaks when connect() is called while a socket is live.
+       *
+       * Ordering is critical: connectionId is incremented BEFORE the old socket is
+       * closed. This ensures the old socket's onClose/onError handlers see a stale id
+       * and early-return, preventing spurious DISCONNECTED notifications or a rogue
+       * scheduleReconnect() call triggered by the deliberate close.
+       *
+       * Also resets reconnectAttempt when it cancels a pending timer, so a manual
+       * reconnect always starts the back-off sequence from the initial delay.
        */
       public connect() {
-          // Cancel a pending back-off timer. Without this, calling connect() manually
-          // while a retry is scheduled causes the timer to fire and open a second socket.
-          // Also reset the attempt counter: a manual connect signals intent to start fresh,
-          // so the next auto-reconnect sequence should begin from the initial delay.
+          // Cancel any pending back-off retry.
           if (this.reconnectTimer !== null) {
               clearTimeout(this.reconnectTimer);
               this.reconnectTimer = null;
+              // Manual connect overrides the schedule — start back-off from scratch.
               this.reconnectAttempt = 0;
           }
+
+          // Increment connectionId FIRST. Old socket handlers capture the previous id
+          // and will early-return on the id !== connectionId guard, so the deliberate
+          // ws.close() below does not emit a spurious DISCONNECTED or schedule a reconnect.
           const id = ++this.connectionId;
+
+          // Close the previous socket if it is still open. Without this, each call to
+          // connect() while a socket is live abandons the old socket on the network,
+          // leaking file descriptors and browser/server connection slots.
+          if (this.ws && this.ws.readyState !== WebSocket.CLOSED && this.ws.readyState !== WebSocket.CLOSING) {
+              this.ws.close();
+          }
+
           this.notifyStatusChange(ConnectionStatus.CONNECTING);
           this.ws = new WebSocket(this.host);
           if (this.ws) {
