@@ -188,7 +188,7 @@ export class RealTimeDataClient {
      */
     public disconnect() {
         this.autoReconnect = false;
-        this.ws.close();
+        if(!!this.ws) this.ws.close();
     }
 
     /**
