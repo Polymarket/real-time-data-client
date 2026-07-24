@@ -113,15 +113,21 @@ export class RealTimeDataClient {
      * Handles WebSocket 'pong' event. Continues the ping cycle.
      */
     private onPong = async () => {
-        delay(this.pingInterval).then(() => this.ping());
+        if(this.ws) delay(this.pingInterval).then(() => this.ping());
     };
 
     /**
      * Handles WebSocket errors. Logs the error and attempts reconnection if `autoReconnect` is enabled.
      * @param err Error object describing the issue.
      */
-    private onError = async (err: ErrorEvent) => {
+    private onError = async (err: ErrorEvent) => {   
         console.error("error", err);
+        this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            this.ws.terminate();
+            this.ws = null;
+        }
         if (this.autoReconnect) {
             this.connect();
         }
@@ -135,6 +141,11 @@ export class RealTimeDataClient {
     private onClose = async (message: CloseEvent) => {
         console.error("disconnected", "code", message.code, "reason", message.reason);
         this.notifyStatusChange(ConnectionStatus.DISCONNECTED);
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            this.ws.terminate();
+            this.ws = null;
+        }
         if (this.autoReconnect) {
             this.connect();
         }
@@ -144,15 +155,17 @@ export class RealTimeDataClient {
      * Sends a ping message to keep the connection alive.
      */
     private ping = async () => {
-        if (this.ws.readyState !== WebSocket.OPEN) {
-            return console.warn("Socket not open. Ready state is:", this.ws.readyState);
-        }
-
-        this.ws.send("ping", (err: Error | undefined) => {
-            if (err) {
-                console.error("ping error", err);
+        if(this.ws) {
+            if (this.ws.readyState !== WebSocket.OPEN) {
+                return console.warn("Socket not open. Ready state is:", this.ws.readyState);
             }
-        });
+    
+            this.ws.send("ping", (err: Error | undefined) => {
+                if (err) {
+                    console.error("ping error", err);
+                }
+            });
+        }
     };
 
     /**
@@ -175,7 +188,7 @@ export class RealTimeDataClient {
      */
     public disconnect() {
         this.autoReconnect = false;
-        this.ws.close();
+        if(!!this.ws) this.ws.close();
     }
 
     /**
@@ -183,6 +196,9 @@ export class RealTimeDataClient {
      * @param msg Subscription request message.
      */
     public subscribe(msg: SubscriptionMessage) {
+        if (!this.ws) {
+            return console.warn("Socket not exists")
+        }
         if (this.ws.readyState !== WebSocket.OPEN) {
             return console.warn("Socket not open. Ready state is:", this.ws.readyState);
         }
@@ -199,6 +215,9 @@ export class RealTimeDataClient {
      * @param msg Unsubscription request message.
      */
     public unsubscribe(msg: SubscriptionMessage) {
+        if (!this.ws) {
+            return console.warn("Socket not exists")
+        }
         if (this.ws.readyState !== WebSocket.OPEN) {
             return console.warn("Socket not open. Ready state is:", this.ws.readyState);
         }
