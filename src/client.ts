@@ -196,6 +196,9 @@ export class RealTimeDataClient {
      * @param msg Subscription request message.
      */
     public subscribe(msg: SubscriptionMessage) {
+        if (!this.ws) {
+            return console.warn("Socket not exists")
+        }
         if (this.ws.readyState !== WebSocket.OPEN) {
             return console.warn("Socket not open. Ready state is:", this.ws.readyState);
         }
@@ -212,6 +215,9 @@ export class RealTimeDataClient {
      * @param msg Unsubscription request message.
      */
     public unsubscribe(msg: SubscriptionMessage) {
+        if (!this.ws) {
+            return console.warn("Socket not exists")
+        }
         if (this.ws.readyState !== WebSocket.OPEN) {
             return console.warn("Socket not open. Ready state is:", this.ws.readyState);
         }
