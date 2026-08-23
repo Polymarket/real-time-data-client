@@ -233,3 +233,6 @@ When the connection is stablished, if a `filter` is used, the server will dump a
 | symbol | string | Symbol of the asset                                              |
 | data   | array  | Array of price data objects, each containing timestamp and value |
 
+## Troubleshooting and bug reports
+
+For production diagnostics and an actionable issue-report format, see [RTDS troubleshooting](./TROUBLESHOOTING.md). Reports are most useful when organized as **symptom → evidence → workaround → requested platform fix**.
