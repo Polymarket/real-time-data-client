@@ -75,6 +75,7 @@ The current client reconnects after socket close/error events. Applications that
 ```ts
 const STALE_AFTER_MS = 15_000;
 let lastPayloadAt = Date.now();
+let nextReconnectAt = 0;
 
 const client = new RealTimeDataClient({
   onConnect: current => {
@@ -87,13 +88,16 @@ const client = new RealTimeDataClient({
 });
 
 setInterval(() => {
-  if (Date.now() - lastPayloadAt <= STALE_AFTER_MS) return;
+  const now = Date.now();
+  if (now - lastPayloadAt <= STALE_AFTER_MS) return;
+  if (now < nextReconnectAt) return;
 
   // Replace the socket. Re-subscribing on a stale connection may not restore
-  // backend subscription state.
+  // backend subscription state. Throttle retries without marking data fresh;
+  // only a valid payload updates lastPayloadAt.
+  nextReconnectAt = now + STALE_AFTER_MS;
   client.disconnect();
   client.connect();
-  lastPayloadAt = Date.now();
 }, 1_000);
 ```
 
