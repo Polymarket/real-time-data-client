@@ -74,7 +74,7 @@ export class RealTimeDataClient {
     private readonly pingInterval: number;
 
     /** Determines whether the client should automatically reconnect on disconnection */
-    private autoReconnect: boolean;
+    private readonly autoReconnect: boolean;
 
     /** Delay before the first reconnect attempt, in milliseconds */
     private readonly reconnectBaseDelay: number;
@@ -388,7 +388,6 @@ export class RealTimeDataClient {
      */
     public disconnect(): void {
         this.closedByCaller = true;
-        this.autoReconnect = false;
         this.clearReconnectTimer();
         this.teardownSocket();
     }
